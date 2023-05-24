@@ -12,3 +12,4 @@ dependencies:
   - rioxarray==0.9.1
   - click==7.1.2
   - shapely==1.7.1
+  - pyreadr
