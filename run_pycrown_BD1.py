@@ -7,14 +7,13 @@ Created on 27.01.22 08:55
 
 
 from datetime import datetime
-
 from pycrown import PyCrown
 
 if __name__ == '__main__':
 
     TSTART = datetime.now()
 
-    site = 'BDM_1'
+    site = 'BDM_1'  # which site to run for? [BDM_1, BDM_2, or BDM_3? Must run raster_prep.py beforehand...
 
     F_CHM = '/home/malle/pycrown/experiment_sites_select/'+site+'/data/CHM.tif'
     F_DTM = '/home/malle/pycrown/experiment_sites_select/'+site+'/data/DTM.tif'
