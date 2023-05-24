@@ -82,15 +82,18 @@ os.environ['PROJ_LIB'] = '/home/malle/miniconda3/envs/SetUp_sites/share/proj'
 
 if __name__ == '__main__':
 
-    # define paths etc.
-    wrk_dir = '/home/malle/slfhome/Postdoc2/experiment_sites_select'
-    plot_dir = '/home/malle/slfhome/Postdoc2/BD_sites/CHMs_select'
-    sites = os.listdir(wrk_dir)
-    pycrown_dir = '/home/malle/pycrown/experiment_sites_select'
+    # SETTINGS
+    chm_ch = '/media/malle/LaCie/Canopy_height_model/VHM/VHM_2021-08-12.tif'  # swiss-wide CHM
+    dtm_ch = '/media/malle/LaCie/Canopy_height_model/swissALTI3D_5M_CHLV95_LN02_2020.tif'  # swiss-wide DTM
+    forest_mask_file = '/media/malle/LaCie/Canopy_height_model/OSHDForestMask_10m_EPSG2056.tif'  # CH forest outline
 
-    # swiss-wide chm & dtm can be loaded outside of loop:
-    # swiss-wide CHM:
-    chm_ch = '/media/malle/LaCie/Canopy_height_model/VHM/VHM_2021-08-12.tif'
+    # define paths etc.
+    wrk_dir = '/home/malle/slfhome/Postdoc2/experiment_sites_select'  # working directory (incl. folder+coords.csv file)
+    plot_dir = '/home/malle/slfhome/Postdoc2/BD_sites/CHMs_select'  # where output plots will be put
+    pycrown_dir = '/home/malle/pycrown/experiment_sites_select'  # pycrown directory for next
+
+    #prep raster for sites
+    sites = os.listdir(wrk_dir)
     in_chm = gdal.Open(chm_ch)
     in_band_chm = in_chm.GetRasterBand(1)  # chm only has 1 band
     in_gt_chm = in_chm.GetGeoTransform()  # get coordinates etc.
@@ -98,8 +101,6 @@ if __name__ == '__main__':
     if inv_gt_chm is None:
         raise RuntimeError('Inverse gt_ch2018 failed')
 
-    # swiss-wide DTM:
-    dtm_ch = '/media/malle/LaCie/Canopy_height_model/swissALTI3D_5M_CHLV95_LN02_2020.tif'
     in_dtm = gdal.Open(dtm_ch)
     in_band_dtm = in_dtm.GetRasterBand(1)  # chm only has 1 band
     in_gt_dtm = in_dtm.GetGeoTransform()  # get coordinates etc.
@@ -107,8 +108,6 @@ if __name__ == '__main__':
     if inv_gt_dtm is None:
         raise RuntimeError('Inverse gt_ch2018 failed')
 
-    # swiss-wide forest outline:
-    forest_mask_file = '/media/malle/LaCie/Canopy_height_model/OSHDForestMask_10m_EPSG2056.tif'
     in_fm = gdal.Open(forest_mask_file)
     in_band_fm = in_fm.GetRasterBand(1)  # chm only has 1 band
     in_gt_fm = in_fm.GetGeoTransform()  # get coordinates etc.
@@ -126,7 +125,7 @@ if __name__ == '__main__':
         chm_plot = os.path.join(plot_dir, "CHM_"+str(site)+".png")
         # def. all output files/locations:
         chm_cut = os.path.join(wrk_dir, site, "CHM.tif")
-        #chm_cut = os.path.join(wrk_dir, site, "CHM_noPyCrown.tif")
+        # chm_cut = os.path.join(wrk_dir, site, "CHM_noPyCrown.tif")
         chm_cut_neg = os.path.join(wrk_dir, site, "CHM_incl_neg.tif")
         dtm_cut_orig = os.path.join(wrk_dir, site, site + "_dtm_cut_orig.tif")
         dtm_cut = os.path.join(wrk_dir, site, "DTM.tif")
