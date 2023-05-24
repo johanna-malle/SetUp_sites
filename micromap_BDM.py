@@ -16,83 +16,7 @@ import statsmodels.formula.api as smf
 from pathlib import Path
 import matplotlib.pyplot as plt
 import math
-
-
-def raster2array(geotif_file):
-    """
-    Convert raster to array
-
-    Parameters
-    ==========
-    geotif_file : path to .tif
-        geotif of CHM
-
-    Returns
-    =======
-    asp_array : array
-        new array of all points in .tif
-    chm_array_metadata: string
-        all metadata used to convert raster2array
-    """
-
-    metadata = {}
-    dataset = gdal.Open(geotif_file)
-    metadata['array_rows'] = dataset.RasterYSize
-    metadata['array_cols'] = dataset.RasterXSize
-    metadata['bands'] = dataset.RasterCount
-    metadata['driver'] = dataset.GetDriver().LongName
-    metadata['projection'] = dataset.GetProjection()
-    metadata['gt_ch2018'] = dataset.GetGeoTransform()
-
-    mapinfo = dataset.GetGeoTransform()
-    metadata['pixelWidth'] = mapinfo[1]
-    metadata['pixelHeight'] = mapinfo[5]
-
-    metadata['ext_dict'] = {}
-    metadata['ext_dict']['xMin'] = mapinfo[0]
-    metadata['ext_dict']['xMax'] = mapinfo[0] + dataset.RasterXSize*mapinfo[1]
-    metadata['ext_dict']['yMin'] = mapinfo[3] + dataset.RasterYSize*mapinfo[5]
-    metadata['ext_dict']['yMax'] = mapinfo[3]
-
-    metadata['extent'] = (metadata['ext_dict']['xMin'], metadata['ext_dict']['xMax'],
-                          metadata['ext_dict']['yMin'], metadata['ext_dict']['yMax'])
-
-    if metadata['bands'] == 1:
-        raster = dataset.GetRasterBand(1)
-        metadata['noDataValue'] = raster.GetNoDataValue()
-        metadata['scaleFactor'] = raster.GetScale()
-
-        # band statistics
-        metadata['bandstats'] = {}  # make a nested dictionary to store band stats in same
-        stats = raster.GetStatistics(True, True)
-        metadata['bandstats']['min'] = round(stats[0], 2)
-        metadata['bandstats']['max'] = round(stats[1], 2)
-        metadata['bandstats']['mean'] = round(stats[2], 2)
-        metadata['bandstats']['stdev'] = round(stats[3], 2)
-
-        array = dataset.GetRasterBand(1).ReadAsArray(0, 0, metadata['array_cols'],
-                                                     metadata['array_rows']).astype(float)
-        array[array == (metadata['noDataValue'])] = np.nan
-        array = array/metadata['scaleFactor']
-        return array, metadata
-
-    elif metadata['bands'] > 1:
-        print('More than one band ... need to modify function for case of multiple bands')
-
-
-def search_in_file(path_in, searchstring_in, filelist1):
-    with open(path_in, 'r') as file:
-        if searchstring_in in file.name:
-            filelist1.append(path_in.name)
-        return filelist1
-
-
-@ray.remote
-def f(lme_result, predictors):
-    micro_map_test = (
-            100 * mod_tmax.predict(lme_result.fe_params,
-                                   exog=np.insert(predictors[2:] / 100, 0, 1))).astype(np.int16)
-    return micro_map_test, predictors[0], predictors[1]
+from src.help_functions import raster2array, search_in_file
 
 
 @ray.remote
@@ -101,7 +25,7 @@ def ray_tmax(lme_result, predictors_all):
     for idd in range(predictors_all.shape[1]):
         predictors = predictors_all[:, idd]
         tt1 = np.insert(predictors[2:], 0, 1)
-        tt = np.insert(tt1, 3, 1)
+        tt = np.insert(tt1, 3, predictors[1]*predictors[2])  # interactive term added here (= temp*transm)
         micro_map_pred[idd] = (mod_tmax.predict(lme_result.fe_params, exog=tt)).astype(np.int16)
     return micro_map_pred
 
@@ -112,7 +36,7 @@ def ray_tmean(lme_result, predictors_all):
     for idd in range(predictors_all.shape[1]):
         predictors = predictors_all[:, idd]
         tt1 = np.insert(predictors[2:], 0, 1)
-        tt = np.insert(tt1, 3, 1)
+        tt = np.insert(tt1, 3, predictors[1]*predictors[2])  # interactive term added here (= temp*transm)
         micro_map_pred[idd] = (mod_tmean.predict(lme_result.fe_params, exog=tt)).astype(np.int16)
     return micro_map_pred
 
@@ -127,16 +51,16 @@ def ray_tmin(lme_result, predictors_all):
     return micro_map_pred
 
 
-
 if __name__ == '__main__':
     TSTART = datetime.datetime.now()
     transm_use = 1
-    forest_scenario_all = ['summer','summer_manual']
+    forest_scenario_all = ['summer', 'summer_manual']
     model_int = ["high", "low", "soil"]
     site_names = ["BDM_2", "BDM_3", "BDM_1"]
     numbers_sc = [1, 0.5, 0]
     # set to 1 if scenario is RCP8.5, 0.5 if RCP4.5 and 0 if scenario is RCP2.6, 2 if scenario is today
 
+    wrk_dir = '/home/malle/slfhome/Postdoc2/experiment_sites_select'
 
     for forest_scenario in forest_scenario_all:
 
@@ -145,8 +69,8 @@ if __name__ == '__main__':
             dfs_model = pd.read_csv('/home/malle/eric_micromap/master_mod_dfs_'+model+'.csv')
 
             if transm_use == 0:
-                mod_tmax = smf.mixedlm('Tmax ~ Tmax_meteo + topo_index + topo_wetness + vegh + aspect_n + slope', dfs_model,
-                                       groups=dfs_model['region'])
+                mod_tmax = smf.mixedlm('Tmax ~ Tmax_meteo + topo_index + topo_wetness + vegh + aspect_n + slope',
+                                       dfs_model, groups=dfs_model['region'])
 
                 mod_tmean = smf.mixedlm('Tmean ~ Tmean_meteo + topo_index + topo_wetness + vegh + aspect_n + slope',
                                         dfs_model, groups=dfs_model['region'])
@@ -188,14 +112,12 @@ if __name__ == '__main__':
                     else:
                         sce = 'None'
 
-                    wrk_dir = '/home/malle/slfhome/Postdoc2/experiment_sites_select'
-
                     rasters_bf = Path('/home/malle/slfhome/Postdoc2/experiment_sites_select/'+site+'/PredRasters')
                     topo_index_file = rasters_bf / 'tpi.tif'
                     topo_wetness_file = rasters_bf / 'twi.tif'
                     aspect_n_file = rasters_bf / 'aspect_n.tif'
                     slope_file = rasters_bf / 'slope.tif'
-                    svf_file = Path('/home/malle/transm_calcs/' + site + '/Output_CR_10m_' + forest_scenario +
+                    svf_file = Path('/media/malle/LaCie/transm_calcs/' + site + '/Output_CR_10m_' + forest_scenario +
                                     '/Plots/SVF.tif')
 
                     if forest_scenario == 'summer_075_fm1_0mbuffer':
@@ -245,7 +167,7 @@ if __name__ == '__main__':
                     slope1 = band.ReadAsArray()
                     slope = slope1.reshape(1, slope1.shape[0], slope1.shape[1]) / 100
 
-                    transm_bf = Path('/home/malle/transm_calcs/' + site + '/Output_CR_10m_' + forest_scenario +
+                    transm_bf = Path('/media/malle/LaCie/transm_calcs/' + site + '/Output_CR_10m_' + forest_scenario +
                                      '/OutTifs_monthly')
                     transm_all = list(transm_bf.glob('**/*.tif'))
 
@@ -381,19 +303,18 @@ if __name__ == '__main__':
                             combo_all_tmax[:2, :] = id_array_tmax
                             combo_all_tmax[2:, :] = stack_tmax[:, id_array_tmax[0, :], id_array_tmax[1, :]]
 
-                            id_array_tmean = np.transpose(np.array
-                                                          (np.meshgrid(range(stack_tmean.shape[1]),
-                                                                       range(stack_tmean.shape[2]))).T.reshape(-1, 2), (1, 0))
+                            id_array_tmean = np.transpose(np.array(np.meshgrid(range(stack_tmean.shape[1]),
+                                                                               range(stack_tmean.shape[2])))
+                                                          .T.reshape(-1, 2), (1, 0))
                             combo_all_tmean = np.zeros((stack_tmean.shape[0] + id_array_tmean.shape[0],
                                                         id_array_tmean.shape[1]), dtype=float)
                             combo_all_tmean[:2, :] = id_array_tmean
                             combo_all_tmean[2:, :] = stack_tmean[:, id_array_tmean[0, :], id_array_tmean[1, :]]
 
-                            id_array_tmin = np.transpose(
-                                np.array(np.meshgrid(range(stack_tmin.shape[1]),
-                                                     range(stack_tmin.shape[2]))).T.reshape(-1, 2), (1, 0))
-                            combo_all_tmin = np.zeros((stack_tmin.shape[0] + id_array_tmin.shape[0], id_array_tmin.shape[1]),
-                                                      dtype=float)
+                            id_array_tmin = np.transpose(np.array(np.meshgrid(range(stack_tmin.shape[1]),
+                                                         range(stack_tmin.shape[2]))).T.reshape(-1, 2), (1, 0))
+                            combo_all_tmin = np.zeros((stack_tmin.shape[0] + id_array_tmin.shape[0],
+                                                       id_array_tmin.shape[1]), dtype=float)
                             combo_all_tmin[:2, :] = id_array_tmin
                             combo_all_tmin[2:, :] = stack_tmin[:, id_array_tmin[0, :], id_array_tmin[1, :]]
 
@@ -461,13 +382,14 @@ if __name__ == '__main__':
                                 micro_map_tmin[aaa1[1], aaa1[2]] = aaa1[0]
 
                             del micro_map_out_tmax, micro_map_out_tmean, micro_map_out_tmin, micro_map_out_tmax_comb, \
-                                micro_map_out_tmean_comb, micro_map_out_tmin_comb, part_micromap, micro_map_out_tmax_raw, \
-                                micro_map_out_tmean_raw, micro_map_out_tmin_raw
+                                micro_map_out_tmean_comb, micro_map_out_tmin_comb, part_micromap, \
+                                micro_map_out_tmax_raw, micro_map_out_tmean_raw, micro_map_out_tmin_raw
 
                             driver = gdal.GetDriverByName('GTiff')
                             driver.Register()
-                            out_ds = driver.Create(str(out_micromap_map_tmax), micro_map_tmax.shape[1], micro_map_tmax.shape[0],
-                                                   1, gdal.GDT_Int16, options=['COMPRESS=ZSTD', 'PREDICTOR=2', 'ZSTD_LEVEL=1'])
+                            out_ds = driver.Create(str(out_micromap_map_tmax), micro_map_tmax.shape[1],
+                                                   micro_map_tmax.shape[0], 1, gdal.GDT_Int16,
+                                                   options=['COMPRESS=ZSTD', 'PREDICTOR=2', 'ZSTD_LEVEL=1'])
                             out_ds.SetGeoTransform(gt)
                             out_ds.SetProjection(proj)
                             outband = out_ds.GetRasterBand(1)
@@ -490,8 +412,8 @@ if __name__ == '__main__':
 
                             # TMEAN
                             out_ds = driver.Create(str(out_micromap_map_tmean), micro_map_tmean.shape[1],
-                                                   micro_map_tmean.shape[0],
-                                                   1, gdal.GDT_Int16, options=['COMPRESS=ZSTD', 'PREDICTOR=2', 'ZSTD_LEVEL=1'])
+                                                   micro_map_tmean.shape[0], 1, gdal.GDT_Int16,
+                                                   options=['COMPRESS=ZSTD', 'PREDICTOR=2', 'ZSTD_LEVEL=1'])
                             out_ds.SetGeoTransform(gt)
                             out_ds.SetProjection(proj)
                             outband = out_ds.GetRasterBand(1)
@@ -513,8 +435,8 @@ if __name__ == '__main__':
 
                             # TMIN
                             out_ds = driver.Create(str(out_micromap_map_tmin), micro_map_tmin.shape[1],
-                                                   micro_map_tmin.shape[0], 1,
-                                                   gdal.GDT_Int16, options=['COMPRESS=ZSTD', 'PREDICTOR=2', 'ZSTD_LEVEL=1'])
+                                                   micro_map_tmin.shape[0], 1, gdal.GDT_Int16,
+                                                   options=['COMPRESS=ZSTD', 'PREDICTOR=2', 'ZSTD_LEVEL=1'])
                             out_ds.SetGeoTransform(gt)
                             out_ds.SetProjection(proj)
                             outband = out_ds.GetRasterBand(1)
@@ -534,7 +456,6 @@ if __name__ == '__main__':
                                 cbar1.set_label('Temp [deg C]', rotation=270, labelpad=20)
                                 fig1.savefig(str(out_micromap_plot_tmin), dpi=350, bbox_inches='tight')
                                 plt.close()
-
 
                     print("Processing time for szenario " + sce + " : ", time.time() - start_szenario)
                 print("Processing time for site " + site + " : ", time.time() - start_site)
