@@ -30,6 +30,12 @@ run_pycrown.py:
 * **tree-delinated CHM** (stored as .tif-file)
 * **crown locations** (stored as .shp-file)
 
+micromap_BDM.py:
+* **microclimate maps** (stored as .nc-files)
+  * for soil, low and high model
+  * for selected forest change scenarios
+  * for past, present and future (CH2018 RCP2.6, RCP4.5, RCP8.5)
+
 ## Requirements
 
 
